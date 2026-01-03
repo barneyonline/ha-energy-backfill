@@ -8,8 +8,19 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 - Splits cycles that cross midnight so yesterday's energy is attributed to the correct day.
 
 ## Import
-1. Copy `blueprints/automation/ha-energy-backfill/energy_backfill.yaml` to your Home Assistant config at `config/blueprints/automation/ha-energy-backfill/energy_backfill.yaml`.
+1. Copy `blueprints/automation/ha-energy-backfill/energy_backfill.yaml` to your Home Assistant config at `config/blueprints/automation/ha-energy-backfill/energy_backfill.yaml`, or import by URL:
+   `https://raw.githubusercontent.com/barneyonline/ha-energy-backfill/main/blueprints/automation/ha-energy-backfill/energy_backfill.yaml`
 2. In Home Assistant: Settings -> Automations & Scenes -> Blueprints -> Create Automation, then select "Energy Backfill".
+
+## Setup
+1. Import the blueprint (local file or URL).
+2. Create the helpers listed below in the Home Assistant UI:
+   - Settings -> Devices & Services -> Helpers -> Create Helper.
+   - Choose the helper type (Number, Date & Time, or Text) and apply the suggested defaults below.
+   - Repeat for each helper, giving each a clear name and entity ID.
+3. Create an automation from the blueprint and select your entities/helpers.
+4. Review your status sensor's possible states in Developer Tools -> States; add any additional inactive values to `inactive_states`.
+5. Save and enable the automation.
 
 ## Configuration (Blueprint inputs)
 - `energy_yesterday_sensor`: sensor reporting yesterday's energy in Wh.
