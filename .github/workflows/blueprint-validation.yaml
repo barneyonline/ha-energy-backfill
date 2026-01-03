@@ -51,6 +51,19 @@ jobs:
           fi
 
       - name: Validate blueprints
+        shell: bash
         run: |
           FILES="${{ steps.files.outputs.files }}"
-          python scripts/ha_blueprint_validate.py ${FILES:-blueprints/**/*.yaml}
+          if [[ -z "${FILES}" ]]; then
+            echo "No blueprint files to validate"
+            exit 0
+          fi
+          if [[ "${FILES}" == *"**"* ]]; then
+            shopt -s globstar nullglob
+          fi
+          set -- ${FILES}
+          if [[ "$#" -eq 0 ]]; then
+            echo "No blueprint files to validate"
+            exit 0
+          fi
+          python scripts/ha_blueprint_validate.py "$@"
