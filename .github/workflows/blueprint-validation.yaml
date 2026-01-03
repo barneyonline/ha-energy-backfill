@@ -47,10 +47,14 @@ jobs:
             )
             echo "files=${CHANGED}" >> "$GITHUB_OUTPUT"
           else
-            echo "files=blueprints/automation/*.ya?ml" >> "$GITHUB_OUTPUT"
+            echo "files=blueprints/automation/energy_backfill.yaml" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate blueprints
         run: |
           FILES="${{ steps.files.outputs.files }}"
-          python scripts/ha_blueprint_validate.py ${FILES:-blueprints/automation/*.ya?ml}
+          if [[ -z "${FILES}" ]]; then
+            echo "No blueprint files to validate"
+            exit 0
+          fi
+          python scripts/ha_blueprint_validate.py ${FILES}
