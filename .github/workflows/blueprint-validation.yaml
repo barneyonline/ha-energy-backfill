@@ -28,7 +28,7 @@ jobs:
         run: |
           python --version
           pip install --upgrade pip
-          pip install "homeassistant==2025.6.0"
+          pip install "homeassistant==2025.1.4"
           python - <<'PY'
           from importlib.metadata import version
           import sys
