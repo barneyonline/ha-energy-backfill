@@ -8,8 +8,8 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 - Splits cycles that cross midnight so yesterday's energy is attributed to the correct day.
 
 ## Import
-1. Copy `blueprints/automation/ha-energy-backfill/energy_backfill.yaml` to your Home Assistant config at `config/blueprints/automation/ha-energy-backfill/energy_backfill.yaml`, or import by URL:
-   `https://raw.githubusercontent.com/barneyonline/ha-energy-backfill/main/blueprints/automation/ha-energy-backfill/energy_backfill.yaml`
+1. Copy `blueprints/automation/energy_backfill.yaml` to your Home Assistant config at `config/blueprints/automation/energy_backfill.yaml`, or import by URL:
+   `https://raw.githubusercontent.com/barneyonline/ha-energy-backfill/main/blueprints/automation/energy_backfill.yaml`
 2. In Home Assistant: Settings -> Automations & Scenes -> Blueprints -> Create Automation, then select "Energy Backfill".
 
 ## Setup
@@ -44,7 +44,7 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 automation:
   - alias: "LG ThinQ Lifetime Energy"
     use_blueprint:
-      path: ha-energy-backfill/energy_backfill.yaml
+      path: energy_backfill.yaml
       input:
         energy_yesterday_sensor: sensor.lg_washer_energy_yesterday
         status_sensor: sensor.lg_washer_status

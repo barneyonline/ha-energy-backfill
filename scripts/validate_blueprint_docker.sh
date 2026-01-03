@@ -2,7 +2,7 @@
 set -euo pipefail
 
 IMAGE="ghcr.io/home-assistant/home-assistant:stable"
-BLUEPRINT_PATH="${1:-blueprints/automation/ha-energy-backfill/energy_backfill.yaml}"
+BLUEPRINT_PATH="${1:-blueprints/automation/energy_backfill.yaml}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker not found; install Docker Desktop and retry" >&2
