@@ -1,0 +1,204 @@
+blueprint:
+  name: Energy Backfill
+  description: >-
+    Convert a delayed daily energy report into a lifetime counter while tracking
+    active cycle durations for per-cycle attribution.
+  domain: automation
+  input:
+    energy_yesterday_sensor:
+      name: Energy Yesterday Sensor
+      description: LG ThinQ "energy yesterday" entity in Wh.
+      selector:
+        entity:
+          domain: sensor
+    status_sensor:
+      name: Status Sensor
+      description: LG ThinQ status entity used to detect active cycles.
+      selector:
+        entity:
+          domain: sensor
+    lifetime_energy_helper:
+      name: Lifetime Energy Helper
+      description: input_number holding cumulative kWh.
+      selector:
+        entity:
+          domain: input_number
+    cycle_start_helper:
+      name: Cycle Start Helper
+      description: input_datetime tracking the current cycle start timestamp.
+      selector:
+        entity:
+          domain: input_datetime
+    daily_active_seconds_helper:
+      name: Daily Active Seconds Helper
+      description: input_number storing total active seconds for the day.
+      selector:
+        entity:
+          domain: input_number
+    cycle_durations_helper:
+      name: Cycle Durations Helper
+      description: input_text with JSON array of cycle durations (seconds).
+      selector:
+        entity:
+          domain: input_text
+    last_processed_date_helper:
+      name: Last Processed Date Helper
+      description: input_text storing the last processed date (YYYY-MM-DD).
+      selector:
+        entity:
+          domain: input_text
+    inactive_states:
+      name: Inactive States
+      description: States treated as inactive.
+      default:
+        - off
+        - unavailable
+        - unknown
+      selector:
+        object:
+
+triggers:
+  - trigger: state
+    entity_id: !input energy_yesterday_sensor
+    id: energy_yesterday
+  - trigger: state
+    entity_id: !input status_sensor
+    id: status_change
+
+actions:
+  - variables:
+      energy_yesterday_sensor: !input energy_yesterday_sensor
+      status_sensor: !input status_sensor
+      lifetime_energy_helper: !input lifetime_energy_helper
+      cycle_start_helper: !input cycle_start_helper
+      daily_active_seconds_helper: !input daily_active_seconds_helper
+      cycle_durations_helper: !input cycle_durations_helper
+      last_processed_date_helper: !input last_processed_date_helper
+      inactive_states: !input inactive_states
+      inactive_states_lower: "{{ inactive_states | map('lower') | list }}"
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: energy_yesterday
+          - condition: template
+            value_template: >-
+              {% set yesterday_str = (now() - timedelta(days=1)).date().isoformat() %}
+              {{ states(last_processed_date_helper) != yesterday_str }}
+        sequence:
+          - variables:
+              yesterday_str: "{{ (now() - timedelta(days=1)).date().isoformat() }}"
+              today_midnight: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) }}"
+              today_midnight_ts: "{{ as_timestamp(today_midnight) }}"
+              status_state: "{{ states(status_sensor) | default('') }}"
+              is_active: >-
+                {{ status_state | string | lower not in inactive_states_lower }}
+              cycle_start_ts: "{{ as_timestamp(states(cycle_start_helper)) }}"
+              cycle_start_set: "{{ cycle_start_ts is not none and cycle_start_ts > 0 }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >-
+                      {{ is_active and cycle_start_set and cycle_start_ts < today_midnight_ts }}
+                sequence:
+                  - variables:
+                      pre_midnight_sec: "{{ (today_midnight_ts - cycle_start_ts) | int(0) }}"
+                      existing_seconds: "{{ states(daily_active_seconds_helper) | float(0) }}"
+                      durations_raw: "{{ states(cycle_durations_helper) }}"
+                      durations_safe: >-
+                        {{ durations_raw if durations_raw not in ['unknown', 'unavailable', 'none', ''] else '[]' }}
+                      durations_list: >-
+                        {{ durations_safe | from_json | default([], true) }}
+                      new_seconds: "{{ existing_seconds + pre_midnight_sec }}"
+                      new_durations: "{{ durations_list + [pre_midnight_sec] }}"
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input daily_active_seconds_helper
+                    data:
+                      value: "{{ new_seconds }}"
+                  - service: input_text.set_value
+                    target:
+                      entity_id: !input cycle_durations_helper
+                    data:
+                      value: "{{ new_durations | to_json }}"
+                  - service: input_datetime.set_datetime
+                    target:
+                      entity_id: !input cycle_start_helper
+                    data:
+                      timestamp: "{{ today_midnight_ts }}"
+          - variables:
+              energy_wh: "{{ states(energy_yesterday_sensor) | float(0) }}"
+              energy_kwh: "{{ energy_wh / 1000 }}"
+          - service: input_number.set_value
+            target:
+              entity_id: !input lifetime_energy_helper
+            data:
+              value: >-
+                {% set current = states(lifetime_energy_helper) | float(0) %}
+                {{ current + energy_kwh }}
+          - service: input_number.set_value
+            target:
+              entity_id: !input daily_active_seconds_helper
+            data:
+              value: 0
+          - service: input_text.set_value
+            target:
+              entity_id: !input cycle_durations_helper
+            data:
+              value: "{{ [] | to_json }}"
+          - service: input_text.set_value
+            target:
+              entity_id: !input last_processed_date_helper
+            data:
+              value: "{{ yesterday_str }}"
+      - conditions:
+          - condition: trigger
+            id: status_change
+        sequence:
+          - variables:
+              status_state: "{{ trigger.to_state.state | default('') }}"
+              is_active: "{{ status_state | string | lower not in inactive_states_lower }}"
+              cycle_start_ts: "{{ as_timestamp(states(cycle_start_helper)) }}"
+              cycle_start_set: "{{ cycle_start_ts is not none and cycle_start_ts > 0 }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_active and not cycle_start_set }}"
+                sequence:
+                  - service: input_datetime.set_datetime
+                    target:
+                      entity_id: !input cycle_start_helper
+                    data:
+                      timestamp: "{{ as_timestamp(now()) }}"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (not is_active) and cycle_start_set }}"
+                sequence:
+                  - variables:
+                      now_ts: "{{ as_timestamp(now()) }}"
+                      duration_sec: "{{ (now_ts - cycle_start_ts) | int(0) }}"
+                      existing_seconds: "{{ states(daily_active_seconds_helper) | float(0) }}"
+                      durations_raw: "{{ states(cycle_durations_helper) }}"
+                      durations_safe: >-
+                        {{ durations_raw if durations_raw not in ['unknown', 'unavailable', 'none', ''] else '[]' }}
+                      durations_list: >-
+                        {{ durations_safe | from_json | default([], true) }}
+                      new_seconds: "{{ existing_seconds + duration_sec }}"
+                      new_durations: "{{ durations_list + [duration_sec] }}"
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input daily_active_seconds_helper
+                    data:
+                      value: "{{ new_seconds }}"
+                  - service: input_text.set_value
+                    target:
+                      entity_id: !input cycle_durations_helper
+                    data:
+                      value: "{{ new_durations | to_json }}"
+                  - service: input_datetime.set_datetime
+                    target:
+                      entity_id: !input cycle_start_helper
+                    data:
+                      timestamp: 0
+
+mode: queued
+max_exceeded: silent
