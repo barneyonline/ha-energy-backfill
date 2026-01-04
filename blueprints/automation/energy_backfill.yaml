@@ -99,7 +99,7 @@ actions:
               durations_safe: >-
                 {{ durations_raw if durations_raw not in ['unknown', 'unavailable', 'none', ''] else '[]' }}
               durations_list: >-
-                {{ durations_safe | from_json | default([], true) }}
+                {{ durations_safe | from_json(default=[]) }}
               split_needed: >-
                 {{ is_active and cycle_start_set and cycle_start_ts < today_midnight_ts }}
               pre_midnight_sec: >-
@@ -201,7 +201,7 @@ actions:
                       durations_safe: >-
                         {{ durations_raw if durations_raw not in ['unknown', 'unavailable', 'none', ''] else '[]' }}
                       durations_list: >-
-                        {{ durations_safe | from_json | default([], true) }}
+                        {{ durations_safe | from_json(default=[]) }}
                       new_seconds: "{{ existing_seconds + duration_sec }}"
                       new_durations: "{{ durations_list + [duration_sec] }}"
                   - service: input_number.set_value
