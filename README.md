@@ -5,6 +5,7 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 ## What it does
 - Tracks active cycles based on status changes and stores cycle durations for the day.
 - On "energy yesterday" update, backfills lifetime kWh once per day and resets daily trackers.
+- Ignores the first "energy yesterday" reading if no cycle times have been recorded yet.
 - Splits cycles that cross midnight so yesterday's energy is attributed to the correct day.
 
 ## Import

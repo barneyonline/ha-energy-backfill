@@ -94,20 +94,29 @@ actions:
                 {{ status_state | string | lower not in inactive_states_lower }}
               cycle_start_ts: "{{ as_timestamp(states(cycle_start_helper)) }}"
               cycle_start_set: "{{ cycle_start_ts is not none and cycle_start_ts > 0 }}"
+              existing_seconds: "{{ states(daily_active_seconds_helper) | float(0) }}"
+              durations_raw: "{{ states(cycle_durations_helper) }}"
+              durations_safe: >-
+                {{ durations_raw if durations_raw not in ['unknown', 'unavailable', 'none', ''] else '[]' }}
+              durations_list: >-
+                {{ durations_safe | from_json | default([], true) }}
+              split_needed: >-
+                {{ is_active and cycle_start_set and cycle_start_ts < today_midnight_ts }}
+              pre_midnight_sec: >-
+                {{ (today_midnight_ts - cycle_start_ts) | int(0) if split_needed else 0 }}
+              total_seconds_with_split: "{{ (existing_seconds + pre_midnight_sec) | int(0) }}"
+              last_processed_raw: "{{ states(last_processed_date_helper) }}"
+              last_processed_set: >-
+                {{ last_processed_raw not in ['unknown', 'unavailable', 'none', ''] }}
+              no_cycles_recorded: >-
+                {{ total_seconds_with_split == 0 and (durations_list | length == 0) }}
+              skip_initial_yesterday: "{{ no_cycles_recorded and not last_processed_set }}"
           - choose:
               - conditions:
                   - condition: template
-                    value_template: >-
-                      {{ is_active and cycle_start_set and cycle_start_ts < today_midnight_ts }}
+                    value_template: "{{ split_needed }}"
                 sequence:
                   - variables:
-                      pre_midnight_sec: "{{ (today_midnight_ts - cycle_start_ts) | int(0) }}"
-                      existing_seconds: "{{ states(daily_active_seconds_helper) | float(0) }}"
-                      durations_raw: "{{ states(cycle_durations_helper) }}"
-                      durations_safe: >-
-                        {{ durations_raw if durations_raw not in ['unknown', 'unavailable', 'none', ''] else '[]' }}
-                      durations_list: >-
-                        {{ durations_safe | from_json | default([], true) }}
                       new_seconds: "{{ existing_seconds + pre_midnight_sec }}"
                       new_durations: "{{ durations_list + [pre_midnight_sec] }}"
                   - service: input_number.set_value
@@ -125,31 +134,42 @@ actions:
                       entity_id: !input cycle_start_helper
                     data:
                       timestamp: "{{ today_midnight_ts }}"
-          - variables:
-              energy_wh: "{{ states(energy_yesterday_sensor) | float(0) }}"
-              energy_kwh: "{{ energy_wh / 1000 }}"
-          - service: input_number.set_value
-            target:
-              entity_id: !input lifetime_energy_helper
-            data:
-              value: >-
-                {% set current = states(lifetime_energy_helper) | float(0) %}
-                {{ current + energy_kwh }}
-          - service: input_number.set_value
-            target:
-              entity_id: !input daily_active_seconds_helper
-            data:
-              value: 0
-          - service: input_text.set_value
-            target:
-              entity_id: !input cycle_durations_helper
-            data:
-              value: "{{ [] | to_json }}"
-          - service: input_text.set_value
-            target:
-              entity_id: !input last_processed_date_helper
-            data:
-              value: "{{ yesterday_str }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ skip_initial_yesterday }}"
+                sequence:
+                  - service: input_text.set_value
+                    target:
+                      entity_id: !input last_processed_date_helper
+                    data:
+                      value: "{{ yesterday_str }}"
+            default:
+              - variables:
+                  energy_wh: "{{ states(energy_yesterday_sensor) | float(0) }}"
+                  energy_kwh: "{{ energy_wh / 1000 }}"
+              - service: input_number.set_value
+                target:
+                  entity_id: !input lifetime_energy_helper
+                data:
+                  value: >-
+                    {% set current = states(lifetime_energy_helper) | float(0) %}
+                    {{ current + energy_kwh }}
+              - service: input_number.set_value
+                target:
+                  entity_id: !input daily_active_seconds_helper
+                data:
+                  value: 0
+              - service: input_text.set_value
+                target:
+                  entity_id: !input cycle_durations_helper
+                data:
+                  value: "{{ [] | to_json }}"
+              - service: input_text.set_value
+                target:
+                  entity_id: !input last_processed_date_helper
+                data:
+                  value: "{{ yesterday_str }}"
       - conditions:
           - condition: trigger
             id: status_change
