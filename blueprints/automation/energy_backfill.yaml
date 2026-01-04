@@ -95,6 +95,7 @@ actions:
               cycle_start_ts: "{{ as_timestamp(states(cycle_start_helper)) }}"
               cycle_start_set: "{{ cycle_start_ts is not none and cycle_start_ts > 0 }}"
               existing_seconds: "{{ states(daily_active_seconds_helper) | float(0) }}"
+              daily_active_max: "{{ state_attr(daily_active_seconds_helper, 'max') | float(0) }}"
               durations_raw: "{{ states(cycle_durations_helper) }}"
               durations_safe: >-
                 {{ durations_raw if durations_raw not in ['unknown', 'unavailable', 'none', ''] else '[]' }}
@@ -118,12 +119,18 @@ actions:
                 sequence:
                   - variables:
                       new_seconds: "{{ existing_seconds + pre_midnight_sec }}"
+                      new_seconds_capped: >-
+                        {% if daily_active_max > 0 %}
+                          {{ [new_seconds, daily_active_max] | min }}
+                        {% else %}
+                          {{ new_seconds }}
+                        {% endif %}
                       new_durations: "{{ durations_list + [pre_midnight_sec] }}"
                   - service: input_number.set_value
                     target:
                       entity_id: !input daily_active_seconds_helper
                     data:
-                      value: "{{ new_seconds }}"
+                      value: "{{ new_seconds_capped }}"
                   - service: input_text.set_value
                     target:
                       entity_id: !input cycle_durations_helper
@@ -197,18 +204,25 @@ actions:
                       now_ts: "{{ as_timestamp(now()) }}"
                       duration_sec: "{{ (now_ts - cycle_start_ts) | int(0) }}"
                       existing_seconds: "{{ states(daily_active_seconds_helper) | float(0) }}"
+                      daily_active_max: "{{ state_attr(daily_active_seconds_helper, 'max') | float(0) }}"
                       durations_raw: "{{ states(cycle_durations_helper) }}"
                       durations_safe: >-
                         {{ durations_raw if durations_raw not in ['unknown', 'unavailable', 'none', ''] else '[]' }}
                       durations_list: >-
                         {{ durations_safe | from_json(default=[]) }}
                       new_seconds: "{{ existing_seconds + duration_sec }}"
+                      new_seconds_capped: >-
+                        {% if daily_active_max > 0 %}
+                          {{ [new_seconds, daily_active_max] | min }}
+                        {% else %}
+                          {{ new_seconds }}
+                        {% endif %}
                       new_durations: "{{ durations_list + [duration_sec] }}"
                   - service: input_number.set_value
                     target:
                       entity_id: !input daily_active_seconds_helper
                     data:
-                      value: "{{ new_seconds }}"
+                      value: "{{ new_seconds_capped }}"
                   - service: input_text.set_value
                     target:
                       entity_id: !input cycle_durations_helper
