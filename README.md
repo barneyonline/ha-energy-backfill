@@ -1,10 +1,10 @@
 # ha-energy-backfill
 
-Home Assistant blueprint to reconcile delayed energy reporting from devices that report daily energy by converting it into a lifetime counter while tracking active cycles.
+Home Assistant blueprint to reconcile delayed energy reporting from devices that report daily energy by converting it into a lifetime counter and importing backdated statistics for a proper energy sensor while tracking active cycles.
 
 ## What it does
 - Tracks active cycles based on status changes and stores cycle durations for the day.
-- On "energy yesterday" update, backfills lifetime kWh once per day and resets daily trackers.
+- On "energy yesterday" update, backfills lifetime kWh once per day, imports a backdated statistics sample for an energy sensor, and resets daily trackers.
 - Ignores the first "energy yesterday" reading if no cycle times have been recorded yet.
 - Splits cycles that cross midnight so yesterday's energy is attributed to the correct day.
 
@@ -19,14 +19,16 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
    - Settings -> Devices & Services -> Helpers -> Create Helper.
    - Choose the helper type (Number, Date & Time, or Text) and apply the suggested defaults below.
    - Repeat for each helper, giving each a clear name and entity ID.
-3. Create an automation from the blueprint and select your entities/helpers.
-4. Review your status sensor's possible states in Developer Tools -> States; add any additional inactive values to `inactive_states`.
-5. Save and enable the automation.
+3. Create or choose a proper energy sensor to receive backfilled statistics (details below).
+4. Create an automation from the blueprint and select your entities/helpers.
+5. Review your status sensor's possible states in Developer Tools -> States; add any additional inactive values to `inactive_states`.
+6. Save and enable the automation.
 
 ## Configuration (Blueprint inputs)
 - `energy_yesterday_sensor`: sensor reporting yesterday's energy in Wh.
 - `status_sensor`: status sensor used to detect active vs inactive states.
 - `lifetime_energy_helper`: input_number storing cumulative kWh.
+- `lifetime_energy_statistic_id`: entity ID of a proper energy sensor to import statistics for (required).
 - `cycle_start_helper`: input_datetime tracking the current cycle start. The blueprint clears it to the Unix epoch (timestamp 0) when idle.
 - `daily_active_seconds_helper`: input_number storing total active seconds for the current day.
 - `cycle_durations_helper`: input_text containing a JSON array of cycle durations in seconds (initialize to `[]`).
@@ -40,6 +42,14 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 - `input_text`: cycle durations JSON, initial `[]`.
 - `input_text`: last processed date, initial empty string.
 
+## Required energy sensor
+The blueprint always imports backdated statistics, so you must supply a proper energy sensor
+(state_class `total_increasing`, device_class `energy`, unit `kWh`) and set its entity ID as
+`lifetime_energy_statistic_id`. The blueprint imports a statistic at today's midnight with the
+updated total so yesterday's usage is attributed correctly.
+If you already have a compatible energy sensor, use it; otherwise create one using the template
+sensor example below.
+
 ## Example configuration
 ```yaml
 automation:
@@ -50,6 +60,7 @@ automation:
         energy_yesterday_sensor: sensor.lg_washer_energy_yesterday
         status_sensor: sensor.lg_washer_status
         lifetime_energy_helper: input_number.lg_washer_lifetime_energy
+        lifetime_energy_statistic_id: sensor.lg_washer_lifetime_energy
         cycle_start_helper: input_datetime.lg_washer_cycle_start
         daily_active_seconds_helper: input_number.lg_washer_daily_active_seconds
         cycle_durations_helper: input_text.lg_washer_cycle_durations
@@ -60,7 +71,10 @@ automation:
           - unknown
 ```
 
-## Optional template sensor
+## Energy sensor example (required)
+If you do not already have a total-increasing energy sensor, add a template sensor like this and
+reload Template Entities (or restart Home Assistant). Use the resulting entity ID as
+`lifetime_energy_statistic_id`.
 ```yaml
 template:
   - sensor:

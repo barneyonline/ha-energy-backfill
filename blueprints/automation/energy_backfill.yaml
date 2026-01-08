@@ -1,8 +1,9 @@
 blueprint:
   name: Energy Backfill
   description: >-
-    Convert a delayed daily energy report into a lifetime counter while tracking
-    active cycle durations for per-cycle attribution.
+    Convert a delayed daily energy report into a lifetime counter and backfill
+    long-term statistics for a proper energy sensor while tracking active cycle
+    durations for per-cycle attribution.
   domain: automation
   input:
     energy_yesterday_sensor:
@@ -23,6 +24,14 @@ blueprint:
       selector:
         entity:
           domain: input_number
+    lifetime_energy_statistic_id:
+      name: Lifetime Energy Sensor
+      description: >-
+        Entity ID of the energy sensor (state_class total_increasing) that will
+        receive backfilled statistics. Required.
+      selector:
+        entity:
+          domain: sensor
     cycle_start_helper:
       name: Cycle Start Helper
       description: input_datetime tracking the current cycle start timestamp.
@@ -70,6 +79,7 @@ actions:
       energy_yesterday_sensor: !input energy_yesterday_sensor
       status_sensor: !input status_sensor
       lifetime_energy_helper: !input lifetime_energy_helper
+      lifetime_energy_statistic_id: !input lifetime_energy_statistic_id
       cycle_start_helper: !input cycle_start_helper
       daily_active_seconds_helper: !input daily_active_seconds_helper
       cycle_durations_helper: !input cycle_durations_helper
@@ -155,13 +165,32 @@ actions:
               - variables:
                   energy_wh: "{{ states(energy_yesterday_sensor) | float(0) }}"
                   energy_kwh: "{{ energy_wh / 1000 }}"
+                  current_total: "{{ states(lifetime_energy_helper) | float(0) }}"
+                  new_total: "{{ current_total + energy_kwh }}"
+                  stats_id: "{{ lifetime_energy_statistic_id | string }}"
+                  stats_name: "{{ state_attr(stats_id, 'friendly_name') | default(stats_id, true) }}"
+                  stats_uom: "{{ state_attr(stats_id, 'unit_of_measurement') | default('kWh', true) }}"
+                  stats_device_class: "{{ state_attr(stats_id, 'device_class') | default('energy', true) }}"
+                  stats_state_class: "{{ state_attr(stats_id, 'state_class') | default('total_increasing', true) }}"
+                  stats_start: "{{ today_midnight.isoformat() }}"
               - service: input_number.set_value
                 target:
                   entity_id: !input lifetime_energy_helper
                 data:
-                  value: >-
-                    {% set current = states(lifetime_energy_helper) | float(0) %}
-                    {{ current + energy_kwh }}
+                  value: "{{ new_total }}"
+              - service: recorder.import_statistics
+                data:
+                  statistic_id: "{{ stats_id }}"
+                  source: "energy_backfill"
+                  unit_of_measurement: "{{ stats_uom }}"
+                  has_mean: false
+                  has_sum: true
+                  name: "{{ stats_name }}"
+                  device_class: "{{ stats_device_class }}"
+                  state_class: "{{ stats_state_class }}"
+                  statistics:
+                    - start: "{{ stats_start }}"
+                      sum: "{{ new_total }}"
               - service: input_number.set_value
                 target:
                   entity_id: !input daily_active_seconds_helper
