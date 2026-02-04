@@ -7,6 +7,13 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 - On "energy yesterday" update, backfills lifetime kWh once per day, imports a backdated statistics sample for an energy sensor, and resets daily trackers.
 - Ignores the first "energy yesterday" reading if no cycle times have been recorded yet.
 - Splits cycles that cross midnight so yesterday's energy is attributed to the correct day.
+- Also runs hourly and on Home Assistant startup to catch missed daily updates, but only processes after the energy-yesterday sensor updates since midnight.
+
+## Requirements
+- Home Assistant with the [Spook](https://spook.boo/) custom integration installed (provides the `recorder.import_statistics` service).
+- Recorder enabled (default) and permission to import statistics.
+- A proper energy sensor (`state_class: total_increasing`, `device_class: energy`, unit `kWh`) to receive the backfilled statistics.
+- Caution: importing statistics can permanently skew your history if configured incorrectly. See the [Spook recorder docs](https://spook.boo/recorder/).
 
 ## Import
 1. Copy `blueprints/automation/energy_backfill.yaml` to your Home Assistant config at `config/blueprints/automation/energy_backfill.yaml`, or import by URL:
@@ -14,18 +21,20 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 2. In Home Assistant: Settings -> Automations & Scenes -> Blueprints -> Create Automation, then select "Energy Backfill".
 
 ## Setup
-1. Import the blueprint (local file or URL).
-2. Create the helpers listed below in the Home Assistant UI:
+1. Install Spook and restart Home Assistant.
+2. Import the blueprint (local file or URL).
+3. Create the helpers listed below in the Home Assistant UI:
    - Settings -> Devices & Services -> Helpers -> Create Helper.
    - Choose the helper type (Number, Date & Time, or Text) and apply the suggested defaults below.
    - Repeat for each helper, giving each a clear name and entity ID.
-3. Create or choose a proper energy sensor to receive backfilled statistics (details below).
-4. Create an automation from the blueprint and select your entities/helpers.
-5. Review your status sensor's possible states in Developer Tools -> States; add any additional inactive values to `inactive_states`.
-6. Save and enable the automation.
+4. Create or choose a proper energy sensor to receive backfilled statistics (details below).
+5. Create an automation from the blueprint and select your entities/helpers.
+6. Review your status sensor's possible states in Developer Tools -> States; add any additional inactive values to `inactive_states`.
+7. Save and enable the automation.
 
 ## Configuration (Blueprint inputs)
-- `energy_yesterday_sensor`: sensor reporting yesterday's energy in Wh.
+- `energy_yesterday_sensor`: sensor reporting yesterday's energy.
+- `energy_yesterday_unit`: unit for the energy yesterday sensor (Wh or kWh).
 - `status_sensor`: status sensor used to detect active vs inactive states.
 - `lifetime_energy_helper`: input_number storing cumulative kWh.
 - `lifetime_energy_statistic_id`: entity ID of a proper energy sensor to import statistics for (required).
@@ -58,6 +67,7 @@ automation:
       path: energy_backfill.yaml
       input:
         energy_yesterday_sensor: sensor.lg_washer_energy_yesterday
+        energy_yesterday_unit: Wh
         status_sensor: sensor.lg_washer_status
         lifetime_energy_helper: input_number.lg_washer_lifetime_energy
         lifetime_energy_statistic_id: sensor.lg_washer_lifetime_energy

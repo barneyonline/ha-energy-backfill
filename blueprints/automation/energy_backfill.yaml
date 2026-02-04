@@ -8,10 +8,20 @@ blueprint:
   input:
     energy_yesterday_sensor:
       name: Energy Yesterday Sensor
-      description: LG ThinQ "energy yesterday" entity in Wh.
+      description: LG ThinQ "energy yesterday" entity.
       selector:
         entity:
           domain: sensor
+    energy_yesterday_unit:
+      name: Energy Yesterday Unit
+      description: Unit for the energy yesterday sensor value.
+      default: Wh
+      selector:
+        select:
+          options:
+            - Wh
+            - kWh
+          mode: dropdown
     status_sensor:
       name: Status Sensor
       description: LG ThinQ status entity used to detect active cycles.
@@ -66,17 +76,24 @@ blueprint:
       selector:
         object:
 
-triggers:
-  - trigger: state
+trigger:
+  - platform: state
     entity_id: !input energy_yesterday_sensor
     id: energy_yesterday
-  - trigger: state
+  - platform: state
     entity_id: !input status_sensor
     id: status_change
+  - platform: time_pattern
+    minutes: 5
+    id: hourly_tick
+  - platform: homeassistant
+    event: start
+    id: ha_start
 
-actions:
+action:
   - variables:
       energy_yesterday_sensor: !input energy_yesterday_sensor
+      energy_yesterday_unit: !input energy_yesterday_unit
       status_sensor: !input status_sensor
       lifetime_energy_helper: !input lifetime_energy_helper
       lifetime_energy_statistic_id: !input lifetime_energy_statistic_id
@@ -88,17 +105,34 @@ actions:
       inactive_states_lower: "{{ inactive_states | map('lower') | list }}"
   - choose:
       - conditions:
-          - condition: trigger
-            id: energy_yesterday
+          - condition: template
+            value_template: >-
+              {{ trigger.id in ['energy_yesterday', 'hourly_tick', 'ha_start'] }}
           - condition: template
             value_template: >-
               {% set yesterday_str = (now() - timedelta(days=1)).date().isoformat() %}
               {{ states(last_processed_date_helper) != yesterday_str }}
+          - condition: template
+            value_template: >-
+              {{ states(energy_yesterday_sensor) | is_number }}
+          - condition: template
+            value_template: >-
+              {% set updated = states[energy_yesterday_sensor].last_updated if states[energy_yesterday_sensor] is not none else none %}
+              {% set updated_ts = as_timestamp(updated) if updated else none %}
+              {% set midnight = now().replace(hour=0, minute=0, second=0, microsecond=0) %}
+              {{ trigger.id == 'energy_yesterday' or (updated_ts is not none and updated_ts >= as_timestamp(midnight)) }}
         sequence:
           - variables:
               yesterday_str: "{{ (now() - timedelta(days=1)).date().isoformat() }}"
               today_midnight: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) }}"
               today_midnight_ts: "{{ as_timestamp(today_midnight) }}"
+              energy_unit: "{{ energy_yesterday_unit | string | lower }}"
+              energy_multiplier: >-
+                {% if energy_unit == 'kwh' %}
+                  1
+                {% else %}
+                  0.001
+                {% endif %}
               status_state: "{{ states(status_sensor) | default('') }}"
               is_active: >-
                 {{ status_state | string | lower not in inactive_states_lower }}
@@ -163,15 +197,13 @@ actions:
                       value: "{{ yesterday_str }}"
             default:
               - variables:
-                  energy_wh: "{{ states(energy_yesterday_sensor) | float(0) }}"
-                  energy_kwh: "{{ energy_wh / 1000 }}"
+                  energy_value: "{{ states(energy_yesterday_sensor) | float(0) }}"
+                  energy_kwh: "{{ energy_value * energy_multiplier }}"
                   current_total: "{{ states(lifetime_energy_helper) | float(0) }}"
                   new_total: "{{ current_total + energy_kwh }}"
                   stats_id: "{{ lifetime_energy_statistic_id | string }}"
                   stats_name: "{{ state_attr(stats_id, 'friendly_name') | default(stats_id, true) }}"
                   stats_uom: "{{ state_attr(stats_id, 'unit_of_measurement') | default('kWh', true) }}"
-                  stats_device_class: "{{ state_attr(stats_id, 'device_class') | default('energy', true) }}"
-                  stats_state_class: "{{ state_attr(stats_id, 'state_class') | default('total_increasing', true) }}"
                   stats_start: "{{ today_midnight.isoformat() }}"
               - service: input_number.set_value
                 target:
@@ -186,9 +218,7 @@ actions:
                   has_mean: false
                   has_sum: true
                   name: "{{ stats_name }}"
-                  device_class: "{{ stats_device_class }}"
-                  state_class: "{{ stats_state_class }}"
-                  statistics:
+                  stats:
                     - start: "{{ stats_start }}"
                       sum: "{{ new_total }}"
               - service: input_number.set_value
