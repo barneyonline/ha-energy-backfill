@@ -204,14 +204,6 @@ action:
                   current_total: "{{ states(lifetime_energy_helper) | float(0) }}"
                   new_total: "{{ current_total + energy_kwh }}"
                   stats_id: "{{ lifetime_energy_statistic_id | string }}"
-                  stats_source: >-
-                    {% if ':' in stats_id %}
-                      {{ stats_id.split(':', 1)[0] }}
-                    {% elif '.' in stats_id %}
-                      {{ stats_id.split('.', 1)[0] }}
-                    {% else %}
-                      sensor
-                    {% endif %}
                   stats_name: "{{ state_attr(stats_id, 'friendly_name') | default(stats_id, true) }}"
                   stats_uom: "{{ state_attr(stats_id, 'unit_of_measurement') | default('kWh', true) }}"
                   stats_start: "{{ today_midnight_iso }}"
@@ -223,7 +215,7 @@ action:
               - service: recorder.import_statistics
                 data:
                   statistic_id: "{{ stats_id }}"
-                  source: "{{ stats_source }}"
+                  source: "recorder"
                   unit_of_measurement: "{{ stats_uom }}"
                   has_mean: false
                   has_sum: true
