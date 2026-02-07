@@ -124,8 +124,10 @@ action:
         sequence:
           - variables:
               yesterday_str: "{{ (now() - timedelta(days=1)).date().isoformat() }}"
-              today_midnight: "{{ now().replace(hour=0, minute=0, second=0, microsecond=0) }}"
-              today_midnight_ts: "{{ as_timestamp(today_midnight) }}"
+              today_midnight_ts: >-
+                {{ as_timestamp(now().replace(hour=0, minute=0, second=0, microsecond=0)) }}
+              today_midnight_iso: >-
+                {{ now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat() }}
               energy_unit: "{{ energy_yesterday_unit | string | lower }}"
               energy_multiplier: >-
                 {% if energy_unit == 'kwh' %}
@@ -204,7 +206,7 @@ action:
                   stats_id: "{{ lifetime_energy_statistic_id | string }}"
                   stats_name: "{{ state_attr(stats_id, 'friendly_name') | default(stats_id, true) }}"
                   stats_uom: "{{ state_attr(stats_id, 'unit_of_measurement') | default('kWh', true) }}"
-                  stats_start: "{{ today_midnight.isoformat() }}"
+                  stats_start: "{{ today_midnight_iso }}"
               - service: input_number.set_value
                 target:
                   entity_id: !input lifetime_energy_helper
