@@ -7,7 +7,8 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 - On "energy yesterday" update, backfills lifetime kWh once per day, imports a backdated statistics sample for an energy sensor, and resets daily trackers.
 - Ignores the first "energy yesterday" reading if no cycle times have been recorded yet.
 - Splits cycles that cross midnight so yesterday's energy is attributed to the correct day.
-- Also runs hourly and on Home Assistant startup to catch missed daily updates, but only processes after the energy-yesterday sensor updates since midnight.
+- Also runs hourly and on Home Assistant startup to catch missed daily updates when the source sensor has fresher data than the last processed day.
+- Optionally calculates yesterday's average active power (W) and can backfill mean statistics for a power sensor.
 
 ## Requirements
 - Home Assistant with the [Spook](https://spook.boo/) custom integration installed (provides the `recorder.import_statistics` service).
@@ -28,9 +29,10 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
    - Choose the helper type (Number, Date & Time, or Text) and apply the suggested defaults below.
    - Repeat for each helper, giving each a clear name and entity ID.
 4. Create or choose a proper energy sensor to receive backfilled statistics (details below).
-5. Create an automation from the blueprint and select your entities/helpers.
-6. Review your status sensor's possible states in Developer Tools -> States; add any additional inactive values to `inactive_states`.
-7. Save and enable the automation.
+5. (Optional) Create a power helper and power sensor if you want power usage shown in Energy dashboard (details below).
+6. Create an automation from the blueprint and select your entities/helpers.
+7. Review your status sensor's possible states in Developer Tools -> States; add any additional inactive values to `inactive_states`.
+8. Save and enable the automation.
 
 ## Configuration (Blueprint inputs)
 - `energy_yesterday_sensor`: sensor reporting yesterday's energy.
@@ -38,6 +40,8 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 - `status_sensor`: status sensor used to detect active vs inactive states.
 - `lifetime_energy_helper`: input_number storing cumulative kWh.
 - `lifetime_energy_statistic_id`: entity ID of a proper energy sensor to import statistics for (required).
+- `power_helper` (optional): input_number storing yesterday's average active power in W.
+- `power_statistic_id` (optional): entity ID of a power sensor to import daily mean statistics for.
 - `cycle_start_helper`: input_datetime tracking the current cycle start. The blueprint clears it to the Unix epoch (timestamp 0) when idle.
 - `daily_active_seconds_helper`: input_number storing total active seconds for the current day.
 - `cycle_durations_helper`: input_text containing a JSON array of cycle durations in seconds (initialize to `[]`).
@@ -46,6 +50,7 @@ Home Assistant blueprint to reconcile delayed energy reporting from devices that
 
 ## Helpers to create (suggested defaults)
 - `input_number`: lifetime energy (kWh), min 0, max large (for example 100000), step 0.001.
+- `input_number`: average active power (W), min 0, max as needed (for example 10000), step 1 (optional).
 - `input_datetime`: cycle start, date + time, initial blank.
 - `input_number`: daily active seconds, min 0, max 90000, step 1, initial 0.
 - `input_text`: cycle durations JSON, initial `[]`.
@@ -71,6 +76,8 @@ automation:
         status_sensor: sensor.lg_washer_status
         lifetime_energy_helper: input_number.lg_washer_lifetime_energy
         lifetime_energy_statistic_id: sensor.lg_washer_lifetime_energy
+        power_helper: input_number.lg_washer_average_power
+        power_statistic_id: sensor.lg_washer_power
         cycle_start_helper: input_datetime.lg_washer_cycle_start
         daily_active_seconds_helper: input_number.lg_washer_daily_active_seconds
         cycle_durations_helper: input_text.lg_washer_cycle_durations
@@ -94,3 +101,24 @@ template:
         state_class: total_increasing
         state: "{{ states('input_number.lg_washer_lifetime_energy') }}"
 ```
+
+## Power sensor example (optional)
+To expose power usage in the Energy dashboard, add a template power sensor like this:
+```yaml
+template:
+  - sensor:
+      - name: "LG Washer Power"
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >-
+          {% set status = states('sensor.lg_washer_status') | lower %}
+          {% if status in ['off', 'unavailable', 'unknown'] %}
+            0
+          {% else %}
+            {{ states('input_number.lg_washer_average_power') | float(0) }}
+          {% endif %}
+```
+Then set:
+- `power_helper`: `input_number.lg_washer_average_power`
+- `power_statistic_id`: `sensor.lg_washer_power` (optional, imports daily mean power statistics)

@@ -3,7 +3,7 @@ blueprint:
   description: >-
     Convert a delayed daily energy report into a lifetime counter and backfill
     long-term statistics for a proper energy sensor while tracking active cycle
-    durations for per-cycle attribution.
+    durations for per-cycle attribution and optional power statistics.
   domain: automation
   input:
     energy_yesterday_sensor:
@@ -39,6 +39,24 @@ blueprint:
       description: >-
         Entity ID of the energy sensor (state_class total_increasing) that will
         receive backfilled statistics. Required.
+      selector:
+        entity:
+          domain: sensor
+    power_helper:
+      name: Power Helper (Optional)
+      description: >-
+        Optional input_number helper (W) updated with yesterday's average active
+        power for use in a template power sensor.
+      default: ""
+      selector:
+        entity:
+          domain: input_number
+    power_statistic_id:
+      name: Power Sensor (Optional)
+      description: >-
+        Optional power sensor entity ID (state_class measurement) that will
+        receive backfilled mean statistics in W.
+      default: ""
       selector:
         entity:
           domain: sensor
@@ -97,6 +115,8 @@ action:
       status_sensor: !input status_sensor
       lifetime_energy_helper: !input lifetime_energy_helper
       lifetime_energy_statistic_id: !input lifetime_energy_statistic_id
+      power_helper: !input power_helper
+      power_statistic_id: !input power_statistic_id
       cycle_start_helper: !input cycle_start_helper
       daily_active_seconds_helper: !input daily_active_seconds_helper
       cycle_durations_helper: !input cycle_durations_helper
@@ -119,8 +139,11 @@ action:
             value_template: >-
               {% set updated = states[energy_yesterday_sensor].last_updated if states[energy_yesterday_sensor] is not none else none %}
               {% set updated_ts = as_timestamp(updated) if updated else none %}
-              {% set midnight = now().replace(hour=0, minute=0, second=0, microsecond=0) %}
-              {{ trigger.id == 'energy_yesterday' or (updated_ts is not none and updated_ts >= as_timestamp(midnight)) }}
+              {% set last_processed_raw = states(last_processed_date_helper) %}
+              {% set last_processed_set = last_processed_raw not in ['unknown', 'unavailable', 'none', 'None', ''] %}
+              {% set last_processed_midnight = last_processed_raw ~ 'T00:00:00' if last_processed_set else none %}
+              {% set last_processed_ts = as_timestamp(last_processed_midnight) if last_processed_midnight else none %}
+              {{ trigger.id == 'energy_yesterday' or (updated_ts is not none and (last_processed_ts is none or updated_ts > last_processed_ts)) }}
         sequence:
           - variables:
               yesterday_str: "{{ (now() - timedelta(days=1)).date().isoformat() }}"
@@ -206,12 +229,34 @@ action:
                   stats_id: "{{ lifetime_energy_statistic_id | string }}"
                   stats_name: "{{ state_attr(stats_id, 'friendly_name') | default(stats_id, true) }}"
                   stats_uom: "{{ state_attr(stats_id, 'unit_of_measurement') | default('kWh', true) }}"
+                  average_power_w: >-
+                    {% set active_seconds = total_seconds_with_split | float(0) %}
+                    {% if active_seconds > 0 %}
+                      {{ (energy_kwh * 3600000 / active_seconds) | float(0) }}
+                    {% else %}
+                      0
+                    {% endif %}
+                  power_helper_set: "{{ (power_helper | string) not in ['', 'none', 'None'] }}"
+                  power_stats_id: "{{ power_statistic_id | string }}"
+                  power_stats_set: "{{ power_stats_id not in ['', 'none', 'None'] }}"
+                  power_stats_name: "{{ state_attr(power_stats_id, 'friendly_name') | default(power_stats_id, true) }}"
+                  power_stats_uom: "{{ state_attr(power_stats_id, 'unit_of_measurement') | default('W', true) }}"
                   stats_start: "{{ today_midnight_iso }}"
               - service: input_number.set_value
                 target:
                   entity_id: !input lifetime_energy_helper
                 data:
                   value: "{{ new_total }}"
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ power_helper_set }}"
+                    sequence:
+                      - service: input_number.set_value
+                        target:
+                          entity_id: !input power_helper
+                        data:
+                          value: "{{ average_power_w }}"
               - service: recorder.import_statistics
                 data:
                   statistic_id: "{{ stats_id }}"
@@ -223,6 +268,22 @@ action:
                   stats:
                     - start: "{{ stats_start }}"
                       sum: "{{ new_total }}"
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ power_stats_set }}"
+                    sequence:
+                      - service: recorder.import_statistics
+                        data:
+                          statistic_id: "{{ power_stats_id }}"
+                          source: "recorder"
+                          unit_of_measurement: "{{ power_stats_uom }}"
+                          has_mean: true
+                          has_sum: false
+                          name: "{{ power_stats_name }}"
+                          stats:
+                            - start: "{{ stats_start }}"
+                              mean: "{{ average_power_w }}"
               - service: input_number.set_value
                 target:
                   entity_id: !input daily_active_seconds_helper
