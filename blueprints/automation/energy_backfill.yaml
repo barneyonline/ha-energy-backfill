@@ -253,9 +253,8 @@ action:
                         value_template: "{{ power_helper_set }}"
                     sequence:
                       - service: input_number.set_value
-                        target:
-                          entity_id: !input power_helper
                         data:
+                          entity_id: "{{ power_helper }}"
                           value: "{{ average_power_w }}"
               - service: recorder.import_statistics
                 data:
